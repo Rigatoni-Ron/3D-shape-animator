@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3D Shape Animator</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; cursor: none; }
+
+  body {
+    background: #f0f0f3;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+  }
+
+  canvas { display: block; }
+
+  .cursor {
+    position: fixed;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+    z-index: 100;
+  }
+
+  /* 8 lines that form both crosshair and corners */
+  .cursor-line {
+    position: absolute;
+    background: #3a3a3a;
+    transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+    transform-origin: center;
+  }
+
+  /* Default: crosshair — 4 arms from center */
+  .cursor-line.top    { width: 1.5px; height: 9px;  left: -0.75px; top: -9px; }
+  .cursor-line.bottom { width: 1.5px; height: 9px;  left: -0.75px; top: 0px; }
+  .cursor-line.left   { width: 9px;   height: 1.5px; left: -9px;   top: -0.75px; }
+  .cursor-line.right  { width: 9px;   height: 1.5px; left: 0px;    top: -0.75px; }
+  /* Second set hidden at center initially */
+  .cursor-line.top2    { width: 1.5px; height: 0px; left: -0.75px; top: 0px; opacity: 0; }
+  .cursor-line.bottom2 { width: 1.5px; height: 0px; left: -0.75px; top: 0px; opacity: 0; }
+  .cursor-line.left2   { width: 0px; height: 1.5px; left: 0px;     top: -0.75px; opacity: 0; }
+  .cursor-line.right2  { width: 0px; height: 1.5px; left: 0px;     top: -0.75px; opacity: 0; }
+
+  /* Hover: lines split outward and bend into corner brackets */
+  .cursor.hovering .cursor-line.top    { height: 8px; left: -14px; top: -14px; }
+  .cursor.hovering .cursor-line.bottom { height: 8px; left: 12.5px; top: 6px; }
+  .cursor.hovering .cursor-line.left   { width: 8px;  left: -14px; top: -14px; }
+  .cursor.hovering .cursor-line.right  { width: 8px;  left: 6px;   top: 12.5px; }
+  /* Second set appears to complete the corners */
+  .cursor.hovering .cursor-line.top2    { height: 8px; left: 12.5px; top: -14px; opacity: 1; }
+  .cursor.hovering .cursor-line.bottom2 { height: 8px; left: -14px;  top: 6px; opacity: 1; }
+  .cursor.hovering .cursor-line.left2   { width: 8px;  left: 6px;    top: -14px; opacity: 1; }
+  .cursor.hovering .cursor-line.right2  { width: 8px;  left: -14px;  top: 12.5px; opacity: 1; }
+
+  /* Dragging: corners tighten inward */
+  .cursor.dragging .cursor-line.top    { height: 7px; left: -10px; top: -10px; }
+  .cursor.dragging .cursor-line.bottom { height: 7px; left: 8.5px;  top: 3px; }
+  .cursor.dragging .cursor-line.left   { width: 7px;  left: -10px; top: -10px; }
+  .cursor.dragging .cursor-line.right  { width: 7px;  left: 3px;   top: 8.5px; }
+  .cursor.dragging .cursor-line.top2    { height: 7px; left: 8.5px;  top: -10px; opacity: 1; }
+  .cursor.dragging .cursor-line.bottom2 { height: 7px; left: -10px;  top: 3px; opacity: 1; }
+  .cursor.dragging .cursor-line.left2   { width: 7px;  left: 3px;    top: -10px; opacity: 1; }
+  .cursor.dragging .cursor-line.right2  { width: 7px;  left: -10px;  top: 8.5px; opacity: 1; }
+
+
+</style>
+</head>
+<body>
+
+<div class="cursor" id="cursor">
+  <div class="cursor-line top"></div>
+  <div class="cursor-line bottom"></div>
+  <div class="cursor-line left"></div>
+  <div class="cursor-line right"></div>
+  <div class="cursor-line top2"></div>
+  <div class="cursor-line bottom2"></div>
+  <div class="cursor-line left2"></div>
+  <div class="cursor-line right2"></div>
+</div>
+
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ─── Scene Setup ────────────────────────────────────────────
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xf0f0f3);
+
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+camera.position.set(0, 0, 2.8);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+document.body.prepend(renderer.domElement);
+
+// ─── Configuration ──────────────────────────────────────────
+const PARTICLE_COUNT = 8000;
+let morphDuration = 2.2; // varies per transition
+const BASE_SIZE = 2.0;
+
+const colorPalette = [
+  new THREE.Color(0xff6b00), // bright orange
+];
+
+// ─── Shape Generators ───────────────────────────────────────
+function generateCube(count) {
+  const positions = [];
+  for (let i = 0; i < count; i++) {
+    const face = Math.floor(Math.random() * 6);
+    let x, y, z;
+    const s = BASE_SIZE * 0.5;
+    switch(face) {
+      case 0: x =  s; y = (Math.random()-0.5)*BASE_SIZE; z = (Math.random()-0.5)*BASE_SIZE; break;
+      case 1: x = -s; y = (Math.random()-0.5)*BASE_SIZE; z = (Math.random()-0.5)*BASE_SIZE; break;
+      case 2: y =  s; x = (Math.random()-0.5)*BASE_SIZE; z = (Math.random()-0.5)*BASE_SIZE; break;
+      case 3: y = -s; x = (Math.random()-0.5)*BASE_SIZE; z = (Math.random()-0.5)*BASE_SIZE; break;
+      case 4: z =  s; x = (Math.random()-0.5)*BASE_SIZE; y = (Math.random()-0.5)*BASE_SIZE; break;
+      case 5: z = -s; x = (Math.random()-0.5)*BASE_SIZE; y = (Math.random()-0.5)*BASE_SIZE; break;
+    }
+    positions.push(x, y, z);
+  }
+  return new Float32Array(positions);
+}
+
+function generateSphere(count) {
+  const positions = [];
+  const r = BASE_SIZE * 0.55;
+  for (let i = 0; i < count; i++) {
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+    positions.push(
+      r * Math.sin(phi) * Math.cos(theta),
+      r * Math.sin(phi) * Math.sin(theta),
+      r * Math.cos(phi)
+    );
+  }
+  return new Float32Array(positions);
+}
+
+function generateTorus(count) {
+  const positions = [];
+  const R = BASE_SIZE * 0.4;
+  const r = BASE_SIZE * 0.18;
+  for (let i = 0; i < count; i++) {
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.random() * Math.PI * 2;
+    positions.push(
+      (R + r * Math.cos(phi)) * Math.cos(theta),
+      (R + r * Math.cos(phi)) * Math.sin(theta),
+      r * Math.sin(phi)
+    );
+  }
+  return new Float32Array(positions);
+}
+
+function generatePyramid(count) {
+  const positions = [];
+  const h = BASE_SIZE * 0.7;
+  const base = BASE_SIZE * 0.6;
+  for (let i = 0; i < count; i++) {
+    const face = Math.floor(Math.random() * 5);
+    let x, y, z;
+    if (face === 0) {
+      x = (Math.random() - 0.5) * base * 2;
+      z = (Math.random() - 0.5) * base * 2;
+      y = -h / 2;
+    } else {
+      const t = Math.random();
+      const apex = { x: 0, y: h / 2, z: 0 };
+      let bx1, bz1, bx2, bz2;
+      switch(face) {
+        case 1: bx1 = -base; bz1 = -base; bx2 =  base; bz2 = -base; break;
+        case 2: bx1 =  base; bz1 = -base; bx2 =  base; bz2 =  base; break;
+        case 3: bx1 =  base; bz1 =  base; bx2 = -base; bz2 =  base; break;
+        case 4: bx1 = -base; bz1 =  base; bx2 = -base; bz2 = -base; break;
+      }
+      const s = Math.random();
+      const edgeX = bx1 + s * (bx2 - bx1);
+      const edgeZ = bz1 + s * (bz2 - bz1);
+      x = apex.x + t * (edgeX - apex.x);
+      y = apex.y + t * (-h / 2 - apex.y);
+      z = apex.z + t * (edgeZ - apex.z);
+    }
+    positions.push(x, y, z);
+  }
+  return new Float32Array(positions);
+}
+
+function generateHelix(count) {
+  const positions = [];
+  const turns = 4;
+  const height = BASE_SIZE * 0.8;
+  const radius = BASE_SIZE * 0.35;
+  for (let i = 0; i < count; i++) {
+    const strand = i % 2 === 0 ? 0 : Math.PI;
+    const t = (i / count) * turns * Math.PI * 2;
+    const y = ((i / count) - 0.5) * height * 2;
+    const spread = (Math.random() - 0.5) * 0.08;
+    if (Math.random() < 0.15) {
+      const rungT = Math.floor(t / (Math.PI * 0.5)) * (Math.PI * 0.5);
+      const lerp = Math.random();
+      const x1 = radius * Math.cos(rungT);
+      const z1 = radius * Math.sin(rungT);
+      const x2 = radius * Math.cos(rungT + Math.PI);
+      const z2 = radius * Math.sin(rungT + Math.PI);
+      positions.push(
+        x1 + lerp * (x2 - x1) + spread,
+        y + spread,
+        z1 + lerp * (z2 - z1) + spread
+      );
+    } else {
+      positions.push(
+        radius * Math.cos(t + strand) + spread,
+        y + spread,
+        radius * Math.sin(t + strand) + spread
+      );
+    }
+  }
+  return new Float32Array(positions);
+}
+
+function generateStar(count) {
+  const positions = [];
+  const outerR = BASE_SIZE * 0.6;
+  const innerR = BASE_SIZE * 0.25;
+  const points = 5;
+  const depth = BASE_SIZE * 0.15;
+  for (let i = 0; i < count; i++) {
+    const z = (Math.random() - 0.5) * depth;
+    const angle = Math.random() * Math.PI * 2;
+    const sectorAngle = (angle % (Math.PI * 2 / points)) / (Math.PI * 2 / points);
+    const t = Math.abs(sectorAngle - 0.5) * 2;
+    const r = innerR + t * (outerR - innerR);
+    const rRand = r * (0.85 + Math.random() * 0.15);
+    positions.push(
+      rRand * Math.cos(angle),
+      rRand * Math.sin(angle),
+      z
+    );
+  }
+  return new Float32Array(positions);
+}
+
+function generateHeart(count) {
+  const positions = [];
+  const scale = BASE_SIZE * 0.045;
+  for (let i = 0; i < count; i++) {
+    const u = Math.random() * Math.PI * 2;
+    const v = Math.random() * Math.PI;
+    const x = 16 * Math.pow(Math.sin(u), 3);
+    const y = 13 * Math.cos(u) - 5 * Math.cos(2*u) - 2 * Math.cos(3*u) - Math.cos(4*u);
+    const z = (Math.random() - 0.5) * 8 * Math.sin(v);
+    const surfaceBias = 0.85 + Math.random() * 0.15;
+    positions.push(
+      x * scale * surfaceBias,
+      y * scale * surfaceBias,
+      z * scale * surfaceBias
+    );
+  }
+  return new Float32Array(positions);
+}
+
+const shapeGenerators = {
+  cube: generateCube,
+  sphere: generateSphere,
+  torus: generateTorus,
+  pyramid: generatePyramid,
+  helix: generateHelix,
+  star: generateStar,
+  heart: generateHeart,
+};
+
+// ─── Particle System ────────────────────────────────────────
+const geometry = new THREE.BufferGeometry();
+const currentPositions = generateSphere(PARTICLE_COUNT);
+const targetPositions = new Float32Array(currentPositions);
+const startPositions = new Float32Array(currentPositions);
+const colors = new Float32Array(PARTICLE_COUNT * 3);
+const sizes = new Float32Array(PARTICLE_COUNT);
+const randoms = new Float32Array(PARTICLE_COUNT); // random offset per particle
+
+// Initialize colors and sizes
+for (let i = 0; i < PARTICLE_COUNT; i++) {
+  const color = colorPalette[Math.floor(Math.random() * colorPalette.length)];
+  colors[i * 3] = color.r;
+  colors[i * 3 + 1] = color.g;
+  colors[i * 3 + 2] = color.b;
+  sizes[i] = 1.5;
+  randoms[i] = Math.random();
+}
+
+geometry.setAttribute('position', new THREE.BufferAttribute(currentPositions, 3));
+geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+// Custom shader material for soft round particles
+const particleMaterial = new THREE.ShaderMaterial({
+  uniforms: {
+    uPixelRatio: { value: renderer.getPixelRatio() },
+  },
+  vertexShader: `
+    attribute float size;
+    attribute vec3 color;
+    varying vec3 vColor;
+    varying float vDepth;
+    uniform float uPixelRatio;
+
+    void main() {
+      vColor = color;
+      vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+      gl_PointSize = size * uPixelRatio;
+      gl_Position = projectionMatrix * mvPosition;
+      vDepth = -mvPosition.z;
+    }
+  `,
+  fragmentShader: `
+    varying vec3 vColor;
+    varying float vDepth;
+
+    void main() {
+      vec2 center = gl_PointCoord - vec2(0.5);
+      float dist = length(center);
+      if (dist > 0.5) discard;
+      // Hard-edged dot with slight softness at edge
+      float alpha = smoothstep(0.5, 0.4, dist) * 0.9;
+      // Depth-based opacity: farther particles are fainter
+      float depthFade = smoothstep(8.0, 3.5, vDepth);
+      gl_FragColor = vec4(vColor, alpha * depthFade);
+    }
+  `,
+  transparent: true,
+  depthWrite: false,
+  blending: THREE.NormalBlending,
+});
+
+const particles = new THREE.Points(geometry, particleMaterial);
+scene.add(particles);
+
+// ─── Morphing State ─────────────────────────────────────────
+let morphing = false;
+let morphProgress = 0;
+let currentShape = 'sphere';
+const shapeOrder = ['sphere', 'torus', 'pyramid'];
+let shapeIndex = 0;
+
+// Per-particle mid-points for curved flight paths
+const midOffsets = new Float32Array(PARTICLE_COUNT * 3);
+const delays = new Float32Array(PARTICLE_COUNT);
+const swirl = new Float32Array(PARTICLE_COUNT);
+let morphStyle = 0; // which animation flavour
+
+// Transition profiles — each shape-change picks different character
+const transitionProfiles = {
+  // sphere → torus: slow unfurl, radial stagger from center, gentle swirl
+  toTorus: {
+    duration: 2.6,
+    expandMin: 0.3, expandMax: 0.6,
+    scatter: 0.3,
+    swirlMin: 0.3, swirlMax: 1.2,
+    staggerMode: 'radial', // particles near center go first
+    staggerSpread: 0.4,
+    overshoot: 1.1,
+  },
+  // torus → pyramid: fast collapse inward, vertical stagger, strong swirl
+  toPyramid: {
+    duration: 1.8,
+    expandMin: 0.1, expandMax: 0.4,
+    scatter: 0.6,
+    swirlMin: 1.0, swirlMax: 3.5,
+    staggerMode: 'vertical', // top particles go first
+    staggerSpread: 0.5,
+    overshoot: 1.5,
+  },
+  // pyramid → sphere: medium pace, spiral outward, angular stagger
+  toSphere: {
+    duration: 2.2,
+    expandMin: 0.5, expandMax: 1.2,
+    scatter: 0.4,
+    swirlMin: 0.8, swirlMax: 2.5,
+    staggerMode: 'angular', // particles stagger by angle around Y
+    staggerSpread: 0.35,
+    overshoot: 1.3,
+  },
+};
+
+function getProfile(shapeName) {
+  if (shapeName === 'torus') return transitionProfiles.toTorus;
+  if (shapeName === 'pyramid') return transitionProfiles.toPyramid;
+  return transitionProfiles.toSphere;
+}
+
+function cycleShape() {
+  if (morphing) return;
+  shapeIndex = (shapeIndex + 1) % shapeOrder.length;
+  const shapeName = shapeOrder[shapeIndex];
+  const profile = getProfile(shapeName);
+
+  morphDuration = profile.duration;
+
+  const newPositions = shapeGenerators[shapeName](PARTICLE_COUNT);
+  startPositions.set(currentPositions);
+  targetPositions.set(newPositions);
+
+  for (let i = 0; i < PARTICLE_COUNT; i++) {
+    const i3 = i * 3;
+    const sx = startPositions[i3], sy = startPositions[i3+1], sz = startPositions[i3+2];
+    const tx = targetPositions[i3], ty = targetPositions[i3+1], tz = targetPositions[i3+2];
+    const mx = (sx + tx) * 0.5, my = (sy + ty) * 0.5, mz = (sz + tz) * 0.5;
+
+    const dist = Math.sqrt(mx*mx + my*my + mz*mz) + 0.001;
+    const expand = profile.expandMin + randoms[i] * (profile.expandMax - profile.expandMin);
+    midOffsets[i3]     = (mx / dist) * expand + (randoms[(i*7)%PARTICLE_COUNT] - 0.5) * profile.scatter;
+    midOffsets[i3 + 1] = (my / dist) * expand + (randoms[(i*13)%PARTICLE_COUNT] - 0.5) * profile.scatter;
+    midOffsets[i3 + 2] = (mz / dist) * expand + (randoms[(i*17)%PARTICLE_COUNT] - 0.5) * profile.scatter;
+
+    // Stagger mode
+    let staggerBias;
+    if (profile.staggerMode === 'radial') {
+      staggerBias = Math.sqrt(sx*sx + sy*sy + sz*sz) / 2.0;
+    } else if (profile.staggerMode === 'vertical') {
+      staggerBias = 1.0 - (sy + 1.5) / 3.0; // top-first
+    } else {
+      staggerBias = (Math.atan2(sz, sx) + Math.PI) / (Math.PI * 2); // angular
+    }
+    delays[i] = staggerBias * profile.staggerSpread + randoms[i] * 0.15;
+
+    swirl[i] = (randoms[i] > 0.5 ? 1 : -1) * (profile.swirlMin + randoms[i] * (profile.swirlMax - profile.swirlMin));
+  }
+
+  morphStyle = shapeIndex;
+  morphProgress = 0;
+  morphing = true;
+  currentShape = shapeName;
+}
+
+// Easing functions
+function easeInOutCubic(t) {
+  return t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t + 2, 3) / 2;
+}
+function easeOutBack(t, overshoot) {
+  const c = overshoot || 1.3;
+  return 1 + c * Math.pow(t - 1, 3) + (c - 1) * Math.pow(t - 1, 2);
+}
+function easeOutElastic(t) {
+  if (t === 0 || t === 1) return t;
+  return Math.pow(2, -10 * t) * Math.sin((t - 0.075) * (2 * Math.PI) / 0.3) + 1;
+}
+
+// ─── Drag-to-Spin Interaction ───────────────────────────────
+let isDragging = false;
+let dragStartX = 0, dragStartY = 0;
+let dragTotalDist = 0;
+let rotVelX = 0, rotVelY = 0;
+let rotX = 0, rotY = 0;
+let prevMouseX = 0, prevMouseY = 0;
+
+renderer.domElement.addEventListener('mousedown', (e) => {
+  isDragging = true;
+  dragStartX = e.clientX;
+  dragStartY = e.clientY;
+  dragTotalDist = 0;
+  prevMouseX = e.clientX;
+  prevMouseY = e.clientY;
+});
+
+window.addEventListener('mousemove', (e) => {
+  if (!isDragging) return;
+  const dx = e.clientX - prevMouseX;
+  const dy = e.clientY - prevMouseY;
+  dragTotalDist += Math.abs(dx) + Math.abs(dy);
+  rotVelY = dx * 0.005;
+  rotVelX = dy * 0.005;
+  prevMouseX = e.clientX;
+  prevMouseY = e.clientY;
+});
+
+window.addEventListener('mouseup', (e) => {
+  if (isDragging && dragTotalDist < 5) {
+    cycleShape();
+  }
+  isDragging = false;
+});
+
+// Touch support
+renderer.domElement.addEventListener('touchstart', (e) => {
+  isDragging = true;
+  const t = e.touches[0];
+  dragStartX = t.clientX;
+  dragStartY = t.clientY;
+  dragTotalDist = 0;
+  prevMouseX = t.clientX;
+  prevMouseY = t.clientY;
+});
+
+window.addEventListener('touchmove', (e) => {
+  if (!isDragging) return;
+  const t = e.touches[0];
+  const dx = t.clientX - prevMouseX;
+  const dy = t.clientY - prevMouseY;
+  dragTotalDist += Math.abs(dx) + Math.abs(dy);
+  rotVelY = dx * 0.005;
+  rotVelX = dy * 0.005;
+  prevMouseX = t.clientX;
+  prevMouseY = t.clientY;
+});
+
+window.addEventListener('touchend', () => {
+  if (isDragging && dragTotalDist < 5) {
+    cycleShape();
+  }
+  isDragging = false;
+});
+
+// ─── Animation Loop ─────────────────────────────────────────
+const clock = new THREE.Clock();
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = clock.getDelta();
+  const time = clock.getElapsedTime();
+
+  // Morph animation
+  if (morphing) {
+    morphProgress += dt / morphDuration;
+    if (morphProgress >= 1) {
+      morphProgress = 1;
+      morphing = false;
+    }
+
+    const profile = getProfile(currentShape);
+    const pos = geometry.attributes.position.array;
+
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      const i3 = i * 3;
+
+      // Per-particle staggered timing
+      const raw = Math.min(Math.max((morphProgress - delays[i]) / (1.0 - delays[i] * 0.8), 0), 1);
+
+      // Different easing per transition type
+      let t, tSettle;
+      if (morphStyle === 1) {
+        // To torus: smooth and fluid
+        t = easeInOutCubic(raw);
+        tSettle = easeOutBack(raw, profile.overshoot);
+      } else if (morphStyle === 2) {
+        // To pyramid: snappy with elastic settle
+        t = raw < 0.5 ? 2*raw*raw : 1 - Math.pow(-2*raw + 2, 2) / 2; // easeInOutQuad
+        tSettle = easeOutElastic(raw);
+      } else {
+        // To sphere: gentle with soft overshoot
+        t = easeInOutCubic(raw);
+        tSettle = easeOutBack(raw, profile.overshoot);
+      }
+
+      const sx = startPositions[i3], sy = startPositions[i3+1], sz = startPositions[i3+2];
+      const tx = targetPositions[i3], ty = targetPositions[i3+1], tz = targetPositions[i3+2];
+
+      // Quadratic bezier through mid-point for curved paths
+      const arc = Math.sin(t * Math.PI);
+      const mx = (sx + tx) * 0.5 + midOffsets[i3];
+      const my = (sy + ty) * 0.5 + midOffsets[i3+1];
+      const mz = (sz + tz) * 0.5 + midOffsets[i3+2];
+
+      const oneMinusT = 1 - t;
+      const bx = oneMinusT*oneMinusT*sx + 2*oneMinusT*t*mx + tSettle*tSettle*tx + (1-tSettle*tSettle - oneMinusT*oneMinusT)*mx;
+      const by = oneMinusT*oneMinusT*sy + 2*oneMinusT*t*my + tSettle*tSettle*ty + (1-tSettle*tSettle - oneMinusT*oneMinusT)*my;
+      const bz = oneMinusT*oneMinusT*sz + 2*oneMinusT*t*mz + tSettle*tSettle*tz + (1-tSettle*tSettle - oneMinusT*oneMinusT)*mz;
+
+      // Swirl: rotate around Y axis during flight
+      const swirlAngle = arc * swirl[i];
+      const cosS = Math.cos(swirlAngle), sinS = Math.sin(swirlAngle);
+
+      pos[i3]     = bx * cosS + bz * sinS;
+      pos[i3 + 1] = by;
+      pos[i3 + 2] = -bx * sinS + bz * cosS;
+    }
+    geometry.attributes.position.needsUpdate = true;
+  }
+
+  // Gentle floating animation when idle
+  if (!morphing) {
+    const pos = geometry.attributes.position.array;
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      const i3 = i * 3;
+      const baseX = targetPositions[i3] || currentPositions[i3];
+      const baseY = targetPositions[i3+1] || currentPositions[i3+1];
+      const baseZ = targetPositions[i3+2] || currentPositions[i3+2];
+      const r = randoms[i];
+      pos[i3]     = baseX + Math.sin(time * 0.5 + r * 10) * 0.015;
+      pos[i3 + 1] = baseY + Math.cos(time * 0.4 + r * 20) * 0.015;
+      pos[i3 + 2] = baseZ + Math.sin(time * 0.6 + r * 15) * 0.015;
+    }
+    geometry.attributes.position.needsUpdate = true;
+  }
+
+  // Apply drag rotation with momentum
+  if (!isDragging) {
+    rotVelX *= 0.97; // friction
+    rotVelY *= 0.97;
+  }
+  rotX += rotVelX;
+  rotY += rotVelY;
+
+  // Gentle auto-rotation when not being touched
+  if (!isDragging && Math.abs(rotVelY) < 0.0005) {
+    rotY += 0.002;
+  }
+
+  particles.rotation.x = rotX;
+  particles.rotation.y = rotY;
+
+  renderer.render(scene, camera);
+}
+
+animate();
+
+// ─── Resize ─────────────────────────────────────────────────
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  particleMaterial.uniforms.uPixelRatio.value = renderer.getPixelRatio();
+});
+
+// ─── Custom Cursor ──────────────────────────────────────────
+const cursorEl = document.getElementById('cursor');
+let cursorX = -100, cursorY = -100;
+let cursorVisible = false;
+
+// Raycaster for hover detection
+const raycaster = new THREE.Raycaster();
+raycaster.params.Points.threshold = 0.15;
+const mouse2D = new THREE.Vector2();
+
+window.addEventListener('mousemove', (e) => {
+  cursorX = e.clientX;
+  cursorY = e.clientY;
+  cursorEl.style.transform = `translate(${cursorX}px, ${cursorY}px)`;
+
+  if (!cursorVisible) {
+    cursorEl.style.opacity = '1';
+    cursorVisible = true;
+  }
+
+  // Hit test against particle bounding sphere
+  mouse2D.x = (e.clientX / window.innerWidth) * 2 - 1;
+  mouse2D.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  raycaster.setFromCamera(mouse2D, camera);
+  const hits = raycaster.intersectObject(particles);
+  if (hits.length > 0) {
+    cursorEl.classList.add('hovering');
+  } else {
+    cursorEl.classList.remove('hovering');
+  }
+});
+
+renderer.domElement.addEventListener('mousedown', () => {
+  cursorEl.classList.add('dragging');
+});
+
+window.addEventListener('mouseup', () => {
+  cursorEl.classList.remove('dragging');
+});
+
+window.addEventListener('mouseleave', () => {
+  cursorEl.style.opacity = '0';
+  cursorVisible = false;
+});
+
+</script>
+</body>
+</html>
