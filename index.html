@@ -8,7 +8,7 @@
   * { margin: 0; padding: 0; box-sizing: border-box; cursor: none; }
 
   body {
-    background: #f0f0f3;
+    background: #ff8c42;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
     overflow: hidden;
     height: 100vh;
@@ -16,6 +16,24 @@
   }
 
   canvas { display: block; }
+
+  #bgCanvas {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 0;
+  }
+
+  #particleCanvas {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+  }
 
   .cursor {
     position: fixed;
@@ -28,7 +46,7 @@
   /* 8 lines that form both crosshair and corners */
   .cursor-line {
     position: absolute;
-    background: #3a3a3a;
+    background: rgba(255, 255, 255, 0.85);
     transition: all 0.3s cubic-bezier(0.25, 0, 0.35, 1);
     transform-origin: center;
   }
@@ -76,6 +94,8 @@
 </head>
 <body>
 
+<canvas id="bgCanvas"></canvas>
+
 <div class="cursor" id="cursor">
   <div class="cursor-line top"></div>
   <div class="cursor-line bottom"></div>
@@ -91,16 +111,153 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 // ─── Scene Setup ────────────────────────────────────────────
+// ─── Background Shader ──────────────────────────────────────
+const bgCanvas = document.getElementById('bgCanvas');
+const gl = bgCanvas.getContext('webgl');
+
+function resizeBg() {
+  bgCanvas.width = window.innerWidth * Math.min(window.devicePixelRatio, 2);
+  bgCanvas.height = window.innerHeight * Math.min(window.devicePixelRatio, 2);
+  bgCanvas.style.width = window.innerWidth + 'px';
+  bgCanvas.style.height = window.innerHeight + 'px';
+  gl.viewport(0, 0, bgCanvas.width, bgCanvas.height);
+}
+resizeBg();
+
+const bgVert = `
+  attribute vec2 pos;
+  void main() { gl_Position = vec4(pos, 0.0, 1.0); }
+`;
+
+const bgFrag = `
+  precision highp float;
+  uniform float uTime;
+  uniform vec2 uResolution;
+  uniform vec2 uMouse;
+
+  // Simplex-style noise
+  vec3 mod289(vec3 x) { return x - floor(x * (1.0/289.0)) * 289.0; }
+  vec2 mod289(vec2 x) { return x - floor(x * (1.0/289.0)) * 289.0; }
+  vec3 permute(vec3 x) { return mod289(((x*34.0)+1.0)*x); }
+
+  float snoise(vec2 v) {
+    const vec4 C = vec4(0.211324865405187, 0.366025403784439,
+                       -0.577350269189626, 0.024390243902439);
+    vec2 i = floor(v + dot(v, C.yy));
+    vec2 x0 = v - i + dot(i, C.xx);
+    vec2 i1 = (x0.x > x0.y) ? vec2(1.0,0.0) : vec2(0.0,1.0);
+    vec4 x12 = x0.xyxy + C.xxzz;
+    x12.xy -= i1;
+    i = mod289(i);
+    vec3 p = permute(permute(i.y + vec3(0.0, i1.y, 1.0)) + i.x + vec3(0.0, i1.x, 1.0));
+    vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy), dot(x12.zw,x12.zw)), 0.0);
+    m = m*m; m = m*m;
+    vec3 x = 2.0 * fract(p * C.www) - 1.0;
+    vec3 h = abs(x) - 0.5;
+    vec3 ox = floor(x + 0.5);
+    vec3 a0 = x - ox;
+    m *= 1.79284291400159 - 0.85373472095314 * (a0*a0 + h*h);
+    vec3 g;
+    g.x = a0.x * x0.x + h.x * x0.y;
+    g.yz = a0.yz * x12.xz + h.yz * x12.yw;
+    return 130.0 * dot(m, g);
+  }
+
+  // Fewer octaves — flatter, less haze
+  float fbm(vec2 p) {
+    float f = 0.0;
+    float w = 0.6;
+    for (int i = 0; i < 3; i++) {
+      f += w * snoise(p);
+      p *= 2.0;
+      w *= 0.4;
+    }
+    return f;
+  }
+
+  void main() {
+    vec2 uv = gl_FragCoord.xy / uResolution;
+    vec2 p = uv * 2.5;
+
+    float t = uTime * 0.12;
+
+    // Two layers only — big flat patches with subtle variation
+    float n1 = fbm(p * 0.5 + vec2(t * 0.3, t * 0.2));
+    float n2 = fbm(p * 1.2 + vec2(-t * 0.4, t * 0.35));
+
+    float combined = n1 * 0.65 + n2 * 0.35;
+
+    // Flatten the range — less contrast between zones
+    combined = combined * 0.35 + 0.55;
+
+    // 5 saturated orange hues — rich and punchy
+    vec3 c1 = vec3(0.80, 0.28, 0.04);  // deep saturated
+    vec3 c2 = vec3(0.92, 0.38, 0.06);  // rich orange
+    vec3 c3 = vec3(1.00, 0.46, 0.10);  // vivid orange
+    vec3 c4 = vec3(1.00, 0.54, 0.16);  // warm punch
+    vec3 c5 = vec3(1.00, 0.64, 0.26);  // bright accent
+
+    vec3 col;
+    if (combined < 0.3) {
+      col = mix(c1, c2, combined / 0.3);
+    } else if (combined < 0.5) {
+      col = mix(c2, c3, (combined - 0.3) / 0.2);
+    } else if (combined < 0.7) {
+      col = mix(c3, c4, (combined - 0.5) / 0.2);
+    } else {
+      col = mix(c4, c5, (combined - 0.7) / 0.3);
+    }
+
+    // Very subtle vignette
+    float vig = 1.0 - 0.1 * length(uv - 0.5);
+    col *= vig;
+
+    gl_FragColor = vec4(col, 1.0);
+  }
+`;
+
+function compileBgShader(type, src) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  return s;
+}
+
+const bgProg = gl.createProgram();
+gl.attachShader(bgProg, compileBgShader(gl.VERTEX_SHADER, bgVert));
+gl.attachShader(bgProg, compileBgShader(gl.FRAGMENT_SHADER, bgFrag));
+gl.linkProgram(bgProg);
+gl.useProgram(bgProg);
+
+const bgBuf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, bgBuf);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+const posAttr = gl.getAttribLocation(bgProg, 'pos');
+gl.enableVertexAttribArray(posAttr);
+gl.vertexAttribPointer(posAttr, 2, gl.FLOAT, false, 0, 0);
+
+const uTime = gl.getUniformLocation(bgProg, 'uTime');
+const uRes = gl.getUniformLocation(bgProg, 'uResolution');
+const uMouse = gl.getUniformLocation(bgProg, 'uMouse');
+gl.uniform2f(uRes, bgCanvas.width, bgCanvas.height);
+
+function renderBg(time) {
+  gl.uniform1f(uTime, time);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+}
+
+// ─── Three.js Scene Setup ───────────────────────────────────
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xf0f0f3);
 
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
 camera.position.set(0, 0, 2.8);
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setClearColor(0x000000, 0);
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-document.body.prepend(renderer.domElement);
+renderer.domElement.id = 'particleCanvas';
+document.body.appendChild(renderer.domElement);
 
 // ─── Configuration ──────────────────────────────────────────
 const PARTICLE_COUNT = 8000;
@@ -108,7 +265,7 @@ let morphDuration = 2.2; // varies per transition
 const BASE_SIZE = 2.0;
 
 const colorPalette = [
-  new THREE.Color(0xff6b00), // bright orange
+  new THREE.Color(0xf0ece8), // warm off-white
 ];
 
 // ─── Shape Generators ───────────────────────────────────────
@@ -269,6 +426,73 @@ function generateHeart(count) {
   return new Float32Array(positions);
 }
 
+function generateBitcoin(count) {
+  const positions = [];
+  const S = BASE_SIZE * 0.5;
+  const thick = 0.04; // thickness of strokes
+  const depth = S * 0.35; // 3D depth
+
+  // Helper: add particle on a line with 3D depth
+  function line3D(x1, y1, x2, y2, n) {
+    for (let i = 0; i < n; i++) {
+      const t = Math.random();
+      const z = (Math.random() - 0.5) * depth;
+      positions.push(
+        (x1 + (x2 - x1) * t + (Math.random() - 0.5) * thick) * S,
+        (y1 + (y2 - y1) * t + (Math.random() - 0.5) * thick) * S,
+        z
+      );
+    }
+  }
+
+  // Helper: add particle on an arc with 3D depth
+  function arc3D(cx, cy, r, startAngle, endAngle, n) {
+    for (let i = 0; i < n; i++) {
+      const a = startAngle + Math.random() * (endAngle - startAngle);
+      const z = (Math.random() - 0.5) * depth;
+      positions.push(
+        (cx + r * Math.cos(a) + (Math.random() - 0.5) * thick) * S,
+        (cy + r * Math.sin(a) + (Math.random() - 0.5) * thick) * S,
+        z
+      );
+    }
+  }
+
+  const perSegment = Math.floor(count / 12);
+
+  // Left vertical stroke of B
+  line3D(-0.35, -0.8, -0.35, 0.8, perSegment);
+
+  // Top horizontal bars
+  line3D(-0.35, 0.8, 0.05, 0.8, perSegment);    // top bar
+  line3D(-0.35, 0.0, 0.1, 0.0, perSegment);      // middle bar
+  line3D(-0.35, -0.8, 0.05, -0.8, perSegment);   // bottom bar
+
+  // Upper bump of B (arc from top to middle)
+  arc3D(0.05, 0.4, 0.4, -Math.PI/2, Math.PI/2, perSegment * 2);
+
+  // Lower bump of B (slightly wider)
+  arc3D(0.1, -0.4, 0.4, -Math.PI/2, Math.PI/2, perSegment * 2);
+
+  // Two vertical strike-through lines extending above and below
+  line3D(-0.15, 0.8, -0.15, 1.0, perSegment);
+  line3D(-0.15, -0.8, -0.15, -1.0, perSegment);
+  line3D(0.05, 0.8, 0.05, 1.0, perSegment);
+  line3D(0.05, -0.8, 0.05, -1.0, perSegment);
+
+  // Fill remaining
+  while (positions.length / 3 < count) {
+    const idx = Math.floor(Math.random() * positions.length / 3) * 3;
+    positions.push(
+      positions[idx] + (Math.random() - 0.5) * 0.02,
+      positions[idx+1] + (Math.random() - 0.5) * 0.02,
+      positions[idx+2] + (Math.random() - 0.5) * depth * 0.5
+    );
+  }
+
+  return new Float32Array(positions.slice(0, count * 3));
+}
+
 const shapeGenerators = {
   cube: generateCube,
   sphere: generateSphere,
@@ -277,6 +501,7 @@ const shapeGenerators = {
   helix: generateHelix,
   star: generateStar,
   heart: generateHeart,
+  bitcoin: generateBitcoin,
 };
 
 // ─── Particle System ────────────────────────────────────────
@@ -306,35 +531,81 @@ geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
 const particleMaterial = new THREE.ShaderMaterial({
   uniforms: {
     uPixelRatio: { value: renderer.getPixelRatio() },
+    uTime: { value: 0.0 },
   },
   vertexShader: `
     attribute float size;
     attribute vec3 color;
     varying vec3 vColor;
     varying float vDepth;
+    varying float vGlow;
     uniform float uPixelRatio;
+    uniform float uTime;
+
+    // Simple 3D noise for glow hotspots
+    vec3 mod289(vec3 x) { return x - floor(x / 289.0) * 289.0; }
+    vec4 mod289(vec4 x) { return x - floor(x / 289.0) * 289.0; }
+    vec4 perm(vec4 x) { return mod289(((x * 34.0) + 1.0) * x); }
+
+    float noise3D(vec3 p) {
+      vec3 a = floor(p);
+      vec3 d = p - a;
+      d = d * d * (3.0 - 2.0 * d);
+      vec4 b = a.xxyy + vec4(0.0, 1.0, 0.0, 1.0);
+      vec4 k1 = perm(b.xyxy);
+      vec4 k2 = perm(k1.xyxy + b.zzww);
+      vec4 c = k2 + a.zzzz;
+      vec4 k3 = perm(c);
+      vec4 k4 = perm(c + 1.0);
+      vec4 o1 = fract(k3 * (1.0 / 41.0));
+      vec4 o2 = fract(k4 * (1.0 / 41.0));
+      vec4 o3 = o2 * d.z + o1 * (1.0 - d.z);
+      vec2 o4 = o3.yw * d.x + o3.xz * (1.0 - d.x);
+      return o4.y * d.y + o4.x * (1.0 - d.y);
+    }
 
     void main() {
       vColor = color;
       vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-      gl_PointSize = size * uPixelRatio;
-      gl_Position = projectionMatrix * mvPosition;
       vDepth = -mvPosition.z;
+
+      // Glow hotspots: noise sampled at world position, drifting over time
+      float n1 = noise3D(position * 1.8 + vec3(uTime * 0.3, uTime * 0.2, uTime * -0.15));
+      float n2 = noise3D(position * 3.5 + vec3(-uTime * 0.2, uTime * 0.4, uTime * 0.25));
+      float glow = smoothstep(0.45, 0.75, n1) * 0.7 + smoothstep(0.5, 0.8, n2) * 0.3;
+
+      vGlow = glow;
+
+      // Glow particles get bigger
+      float glowSize = size + glow * 4.0;
+      gl_PointSize = glowSize * uPixelRatio;
+      gl_Position = projectionMatrix * mvPosition;
     }
   `,
   fragmentShader: `
     varying vec3 vColor;
     varying float vDepth;
+    varying float vGlow;
 
     void main() {
       vec2 center = gl_PointCoord - vec2(0.5);
       float dist = length(center);
       if (dist > 0.5) discard;
-      // Hard-edged dot with slight softness at edge
-      float alpha = smoothstep(0.5, 0.4, dist) * 0.9;
-      // Depth-based opacity: farther particles are fainter
-      float depthFade = smoothstep(8.0, 3.5, vDepth);
-      gl_FragColor = vec4(vColor, alpha * depthFade);
+
+      // Glowing particles get a soft falloff, normal ones stay crisp
+      float softness = mix(0.4, 0.1, vGlow);
+      float alpha = smoothstep(0.5, softness, dist);
+
+      // Depth fade
+      float depthFade = smoothstep(6.0, 2.0, vDepth) * 0.4 + 0.6;
+
+      // Boost brightness in glow zones
+      vec3 col = mix(vColor, vec3(1.0), vGlow * 0.5);
+
+      // Glow particles are more opaque at edges for bloom feel
+      float glowAlpha = mix(alpha, alpha * 0.6 + 0.4, vGlow);
+
+      gl_FragColor = vec4(col, glowAlpha * depthFade);
     }
   `,
   transparent: true,
@@ -349,62 +620,33 @@ scene.add(particles);
 let morphing = false;
 let morphProgress = 0;
 let currentShape = 'sphere';
-const shapeOrder = ['sphere', 'torus', 'pyramid'];
+const shapeOrder = ['sphere', 'torus', 'pyramid', 'bitcoin'];
 let shapeIndex = 0;
 
-// Per-particle mid-points for curved flight paths
+// Per-particle data
 const midOffsets = new Float32Array(PARTICLE_COUNT * 3);
 const delays = new Float32Array(PARTICLE_COUNT);
-const swirl = new Float32Array(PARTICLE_COUNT);
-let morphStyle = 0; // which animation flavour
+const swirlData = new Float32Array(PARTICLE_COUNT);
+let morphStyle = 0;
 
-// Transition profiles — each shape-change picks different character
-const transitionProfiles = {
-  // sphere → torus: slow unfurl, radial stagger from center, gentle swirl
-  toTorus: {
-    duration: 2.6,
-    expandMin: 0.3, expandMax: 0.6,
-    scatter: 0.3,
-    swirlMin: 0.3, swirlMax: 1.2,
-    staggerMode: 'radial', // particles near center go first
-    staggerSpread: 0.4,
-    overshoot: 1.1,
-  },
-  // torus → pyramid: fast collapse inward, vertical stagger, strong swirl
-  toPyramid: {
-    duration: 1.8,
-    expandMin: 0.1, expandMax: 0.4,
-    scatter: 0.6,
-    swirlMin: 1.0, swirlMax: 3.5,
-    staggerMode: 'vertical', // top particles go first
-    staggerSpread: 0.5,
-    overshoot: 1.5,
-  },
-  // pyramid → sphere: medium pace, spiral outward, angular stagger
-  toSphere: {
-    duration: 2.2,
-    expandMin: 0.5, expandMax: 1.2,
-    scatter: 0.4,
-    swirlMin: 0.8, swirlMax: 2.5,
-    staggerMode: 'angular', // particles stagger by angle around Y
-    staggerSpread: 0.35,
-    overshoot: 1.3,
-  },
+// Profiles: faster, punchier, less stagger so everything reacts immediately
+const profiles = {
+  toTorus:   { duration: 1.4, expand: [0.4, 0.9], scatter: 0.5, swirl: [0.5, 2.0], stagger: 'radial',  staggerAmt: 0.12 },
+  toPyramid: { duration: 1.1, expand: [0.2, 0.6], scatter: 0.7, swirl: [1.5, 4.0], stagger: 'vertical', staggerAmt: 0.15 },
+  toBitcoin: { duration: 1.2, expand: [0.3, 0.5], scatter: 0.3, swirl: [0.3, 1.5], stagger: 'vertical', staggerAmt: 0.10 },
+  toSphere:  { duration: 1.3, expand: [0.6, 1.4], scatter: 0.6, swirl: [1.0, 3.0], stagger: 'angular',  staggerAmt: 0.12 },
 };
 
-function getProfile(shapeName) {
-  if (shapeName === 'torus') return transitionProfiles.toTorus;
-  if (shapeName === 'pyramid') return transitionProfiles.toPyramid;
-  return transitionProfiles.toSphere;
+function getProfile(name) {
+  return profiles['to' + name.charAt(0).toUpperCase() + name.slice(1)] || profiles.toSphere;
 }
 
 function cycleShape() {
   if (morphing) return;
   shapeIndex = (shapeIndex + 1) % shapeOrder.length;
   const shapeName = shapeOrder[shapeIndex];
-  const profile = getProfile(shapeName);
-
-  morphDuration = profile.duration;
+  const p = getProfile(shapeName);
+  morphDuration = p.duration;
 
   const newPositions = shapeGenerators[shapeName](PARTICLE_COUNT);
   startPositions.set(currentPositions);
@@ -414,26 +656,37 @@ function cycleShape() {
     const i3 = i * 3;
     const sx = startPositions[i3], sy = startPositions[i3+1], sz = startPositions[i3+2];
     const tx = targetPositions[i3], ty = targetPositions[i3+1], tz = targetPositions[i3+2];
-    const mx = (sx + tx) * 0.5, my = (sy + ty) * 0.5, mz = (sz + tz) * 0.5;
 
-    const dist = Math.sqrt(mx*mx + my*my + mz*mz) + 0.001;
-    const expand = profile.expandMin + randoms[i] * (profile.expandMax - profile.expandMin);
-    midOffsets[i3]     = (mx / dist) * expand + (randoms[(i*7)%PARTICLE_COUNT] - 0.5) * profile.scatter;
-    midOffsets[i3 + 1] = (my / dist) * expand + (randoms[(i*13)%PARTICLE_COUNT] - 0.5) * profile.scatter;
-    midOffsets[i3 + 2] = (mz / dist) * expand + (randoms[(i*17)%PARTICLE_COUNT] - 0.5) * profile.scatter;
+    // Direction from start to target — push the arc perpendicular to travel
+    const dx = tx - sx, dy = ty - sy, dz = tz - sz;
+    const travelDist = Math.sqrt(dx*dx + dy*dy + dz*dz) + 0.001;
 
-    // Stagger mode
-    let staggerBias;
-    if (profile.staggerMode === 'radial') {
-      staggerBias = Math.sqrt(sx*sx + sy*sy + sz*sz) / 2.0;
-    } else if (profile.staggerMode === 'vertical') {
-      staggerBias = 1.0 - (sy + 1.5) / 3.0; // top-first
+    // Cross product with a varying axis for perpendicular push
+    const seed = randoms[i];
+    const ax = Math.sin(seed * 50), ay = Math.cos(seed * 30), az = Math.sin(seed * 70);
+    let px = dy*az - dz*ay, py = dz*ax - dx*az, pz = dx*ay - dy*ax;
+    const pLen = Math.sqrt(px*px + py*py + pz*pz) + 0.001;
+    px /= pLen; py /= pLen; pz /= pLen;
+
+    const expand = p.expand[0] + seed * (p.expand[1] - p.expand[0]);
+    const scatterVal = (randoms[(i*7)%PARTICLE_COUNT] - 0.5) * p.scatter;
+
+    midOffsets[i3]     = px * expand * travelDist + scatterVal;
+    midOffsets[i3 + 1] = py * expand * travelDist + scatterVal;
+    midOffsets[i3 + 2] = pz * expand * travelDist + scatterVal;
+
+    // Minimal stagger — most particles start almost immediately
+    let bias;
+    if (p.stagger === 'radial') {
+      bias = Math.sqrt(sx*sx + sy*sy + sz*sz) / 2.0;
+    } else if (p.stagger === 'vertical') {
+      bias = 1.0 - (sy + 1.5) / 3.0;
     } else {
-      staggerBias = (Math.atan2(sz, sx) + Math.PI) / (Math.PI * 2); // angular
+      bias = (Math.atan2(sz, sx) + Math.PI) / (Math.PI * 2);
     }
-    delays[i] = staggerBias * profile.staggerSpread + randoms[i] * 0.15;
+    delays[i] = bias * p.staggerAmt + seed * 0.05;
 
-    swirl[i] = (randoms[i] > 0.5 ? 1 : -1) * (profile.swirlMin + randoms[i] * (profile.swirlMax - profile.swirlMin));
+    swirlData[i] = (seed > 0.5 ? 1 : -1) * (p.swirl[0] + seed * (p.swirl[1] - p.swirl[0]));
   }
 
   morphStyle = shapeIndex;
@@ -442,17 +695,13 @@ function cycleShape() {
   currentShape = shapeName;
 }
 
-// Easing functions
-function easeInOutCubic(t) {
-  return t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t + 2, 3) / 2;
-}
-function easeOutBack(t, overshoot) {
-  const c = overshoot || 1.3;
-  return 1 + c * Math.pow(t - 1, 3) + (c - 1) * Math.pow(t - 1, 2);
-}
+// Easing — all fast-start curves, no slow wind-up
+function easeOutQuart(t) { return 1 - Math.pow(1 - t, 4); }
+function easeOutExpo(t) { return t === 1 ? 1 : 1 - Math.pow(2, -12 * t); }
+function easeOutBack(t, c) { c = c || 1.7; return 1 + c * Math.pow(t-1, 3) + (c-1) * Math.pow(t-1, 2); }
 function easeOutElastic(t) {
   if (t === 0 || t === 1) return t;
-  return Math.pow(2, -10 * t) * Math.sin((t - 0.075) * (2 * Math.PI) / 0.3) + 1;
+  return Math.pow(2, -10 * t) * Math.sin((t - 0.05) * (2 * Math.PI) / 0.25) + 1;
 }
 
 // ─── Drag-to-Spin Interaction ───────────────────────────────
@@ -536,52 +785,44 @@ function animate() {
       morphing = false;
     }
 
-    const profile = getProfile(currentShape);
     const pos = geometry.attributes.position.array;
 
     for (let i = 0; i < PARTICLE_COUNT; i++) {
       const i3 = i * 3;
 
-      // Per-particle staggered timing
-      const raw = Math.min(Math.max((morphProgress - delays[i]) / (1.0 - delays[i] * 0.8), 0), 1);
+      // Minimal delay — everything kicks off fast
+      const raw = Math.min(Math.max((morphProgress - delays[i]) / (1.0 - delays[i]), 0), 1);
 
-      // Different easing per transition type
-      let t, tSettle;
+      // Fast-out easing varies per shape for character
+      let t;
       if (morphStyle === 1) {
-        // To torus: smooth and fluid
-        t = easeInOutCubic(raw);
-        tSettle = easeOutBack(raw, profile.overshoot);
+        t = easeOutExpo(raw);         // torus: explosive start, smooth glide
       } else if (morphStyle === 2) {
-        // To pyramid: snappy with elastic settle
-        t = raw < 0.5 ? 2*raw*raw : 1 - Math.pow(-2*raw + 2, 2) / 2; // easeInOutQuad
-        tSettle = easeOutElastic(raw);
+        t = easeOutElastic(raw);      // pyramid: punchy with bounce
+      } else if (morphStyle === 3) {
+        t = easeOutBack(raw, 2.0);    // bitcoin: overshoot snap
       } else {
-        // To sphere: gentle with soft overshoot
-        t = easeInOutCubic(raw);
-        tSettle = easeOutBack(raw, profile.overshoot);
+        t = easeOutQuart(raw);        // sphere: powerful but clean
       }
 
       const sx = startPositions[i3], sy = startPositions[i3+1], sz = startPositions[i3+2];
       const tx = targetPositions[i3], ty = targetPositions[i3+1], tz = targetPositions[i3+2];
 
-      // Quadratic bezier through mid-point for curved paths
-      const arc = Math.sin(t * Math.PI);
-      const mx = (sx + tx) * 0.5 + midOffsets[i3];
-      const my = (sy + ty) * 0.5 + midOffsets[i3+1];
-      const mz = (sz + tz) * 0.5 + midOffsets[i3+2];
+      // Arc intensity peaks at midpoint of flight
+      const arc = Math.sin(raw * Math.PI);
 
-      const oneMinusT = 1 - t;
-      const bx = oneMinusT*oneMinusT*sx + 2*oneMinusT*t*mx + tSettle*tSettle*tx + (1-tSettle*tSettle - oneMinusT*oneMinusT)*mx;
-      const by = oneMinusT*oneMinusT*sy + 2*oneMinusT*t*my + tSettle*tSettle*ty + (1-tSettle*tSettle - oneMinusT*oneMinusT)*my;
-      const bz = oneMinusT*oneMinusT*sz + 2*oneMinusT*t*mz + tSettle*tSettle*tz + (1-tSettle*tSettle - oneMinusT*oneMinusT)*mz;
+      // Simple lerp + perpendicular arc push
+      const lx = sx + (tx - sx) * t + midOffsets[i3] * arc;
+      const ly = sy + (ty - sy) * t + midOffsets[i3+1] * arc;
+      const lz = sz + (tz - sz) * t + midOffsets[i3+2] * arc;
 
-      // Swirl: rotate around Y axis during flight
-      const swirlAngle = arc * swirl[i];
+      // Swirl rotation — strongest at midpoint
+      const swirlAngle = arc * swirlData[i];
       const cosS = Math.cos(swirlAngle), sinS = Math.sin(swirlAngle);
 
-      pos[i3]     = bx * cosS + bz * sinS;
-      pos[i3 + 1] = by;
-      pos[i3 + 2] = -bx * sinS + bz * cosS;
+      pos[i3]     = lx * cosS + lz * sinS;
+      pos[i3 + 1] = ly;
+      pos[i3 + 2] = -lx * sinS + lz * cosS;
     }
     geometry.attributes.position.needsUpdate = true;
   }
@@ -618,6 +859,11 @@ function animate() {
   particles.rotation.x = rotX;
   particles.rotation.y = rotY;
 
+  // Update particle glow time
+  particleMaterial.uniforms.uTime.value = time;
+
+  // Render background shader then particles
+  renderBg(time);
   renderer.render(scene, camera);
 }
 
@@ -629,6 +875,9 @@ window.addEventListener('resize', () => {
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
   particleMaterial.uniforms.uPixelRatio.value = renderer.getPixelRatio();
+  resizeBg();
+  gl.useProgram(bgProg);
+  gl.uniform2f(uRes, bgCanvas.width, bgCanvas.height);
 });
 
 // ─── Custom Cursor ──────────────────────────────────────────
@@ -645,6 +894,7 @@ window.addEventListener('mousemove', (e) => {
   cursorX = e.clientX;
   cursorY = e.clientY;
   cursorEl.style.transform = `translate(${cursorX}px, ${cursorY}px)`;
+
 
   if (!cursorVisible) {
     cursorEl.style.opacity = '1';
