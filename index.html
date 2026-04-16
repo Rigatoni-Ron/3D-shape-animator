@@ -890,9 +890,7 @@ scene.add(particles);
 // ─── Morphing State ─────────────────────────────────────────
 let morphing = false;
 let morphProgress = 0;
-let currentShape = 'sphere';
-const shapeOrder = ['sphere', 'pyramid', 'hype'];
-let shapeIndex = 0;
+let isSplit = false;
 
 // Per-particle data
 const midOffsets = new Float32Array(PARTICLE_COUNT * 3);
@@ -902,7 +900,6 @@ const delays = new Float32Array(PARTICLE_COUNT);
 const startColors = new Float32Array(PARTICLE_COUNT * 3);
 const targetColors = new Float32Array(PARTICLE_COUNT * 3);
 const baseOrange = new THREE.Color(0xff5500);
-// Initialize default uniform orange
 for (let i = 0; i < PARTICLE_COUNT; i++) {
   startColors[i*3] = baseOrange.r; startColors[i*3+1] = baseOrange.g; startColors[i*3+2] = baseOrange.b;
   targetColors[i*3] = baseOrange.r; targetColors[i*3+1] = baseOrange.g; targetColors[i*3+2] = baseOrange.b;
@@ -910,24 +907,32 @@ for (let i = 0; i < PARTICLE_COUNT; i++) {
 
 const MORPH_DURATION = 1.0;
 
-function cycleShape() {
-  if (morphing) return;
-  shapeIndex = (shapeIndex + 1) % shapeOrder.length;
-  const shapeName = shapeOrder[shapeIndex];
+// Generate two spheres side by side
+function generateTwoSpheres(count) {
+  const positions = new Float32Array(count * 3);
+  const r = BASE_SIZE * 0.32;    // smaller radius per sphere
+  const gap = BASE_SIZE * 0.45;  // offset from center
+  const half = Math.floor(count / 2);
 
-  const newPositions = shapeGenerators[shapeName](PARTICLE_COUNT);
+  for (let i = 0; i < count; i++) {
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+    const offsetX = i < half ? -gap : gap;
+    positions[i * 3]     = r * Math.sin(phi) * Math.cos(theta) + offsetX;
+    positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+    positions[i * 3 + 2] = r * Math.cos(phi);
+  }
+  return positions;
+}
+
+function startMorph(newPositions) {
   startPositions.set(currentPositions);
   targetPositions.set(newPositions);
 
-  // Store current colors as start, set target colors
+  // Reset colors to uniform orange
   startColors.set(colors);
-  if (newPositions.ethColors) {
-    targetColors.set(newPositions.ethColors);
-  } else {
-    // Default uniform orange for non-ETH shapes
-    for (let i = 0; i < PARTICLE_COUNT; i++) {
-      targetColors[i*3] = baseOrange.r; targetColors[i*3+1] = baseOrange.g; targetColors[i*3+2] = baseOrange.b;
-    }
+  for (let i = 0; i < PARTICLE_COUNT; i++) {
+    targetColors[i*3] = baseOrange.r; targetColors[i*3+1] = baseOrange.g; targetColors[i*3+2] = baseOrange.b;
   }
 
   for (let i = 0; i < PARTICLE_COUNT; i++) {
@@ -938,26 +943,35 @@ function cycleShape() {
     const dx = tx - sx, dy = ty - sy, dz = tz - sz;
     const travelDist = Math.sqrt(dx*dx + dy*dy + dz*dz) + 0.001;
 
-    // Compute a perpendicular offset for a subtle arc
     const seed = randoms[i];
     const ax = Math.sin(seed * 50), ay = Math.cos(seed * 30), az = Math.sin(seed * 70);
     let px = dy*az - dz*ay, py = dz*ax - dx*az, pz = dx*ay - dy*ax;
     const pLen = Math.sqrt(px*px + py*py + pz*pz) + 0.001;
     px /= pLen; py /= pLen; pz /= pLen;
 
-    // Small arc — just enough to give the path a gentle curve, not a wild detour
     const arcStrength = 0.08 + seed * 0.12;
     midOffsets[i3]     = px * arcStrength * travelDist;
     midOffsets[i3 + 1] = py * arcStrength * travelDist;
     midOffsets[i3 + 2] = pz * arcStrength * travelDist;
 
-    // Tiny stagger so particles don't all move in lockstep
     delays[i] = seed * 0.08;
   }
 
   morphProgress = 0;
   morphing = true;
-  currentShape = shapeName;
+}
+
+function toggleSplit() {
+  if (morphing) return;
+  if (!isSplit) {
+    // Split into two spheres
+    startMorph(generateTwoSpheres(PARTICLE_COUNT));
+    isSplit = true;
+  } else {
+    // Merge back into one sphere
+    startMorph(generateSphere(PARTICLE_COUNT));
+    isSplit = false;
+  }
 }
 
 function easeInOutCubic(t) {
@@ -1013,7 +1027,7 @@ window.addEventListener('mousemove', (e) => {
 
 window.addEventListener('mouseup', (e) => {
   if (isDragging && dragTotalDist < 5) {
-    cycleShape();
+    toggleSplit();
   }
   isDragging = false;
 });
@@ -1043,7 +1057,7 @@ window.addEventListener('touchmove', (e) => {
 
 window.addEventListener('touchend', () => {
   if (isDragging && dragTotalDist < 5) {
-    cycleShape();
+    toggleSplit();
   }
   isDragging = false;
 });
