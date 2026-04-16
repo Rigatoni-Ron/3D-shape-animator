@@ -842,9 +842,12 @@ for (let i = 0; i < PARTICLE_COUNT; i++) {
   randoms[i] = Math.random();
 }
 
+const glows = new Float32Array(PARTICLE_COUNT); // 0 = no glow, 1 = full glow
+
 geometry.setAttribute('position', new THREE.BufferAttribute(currentPositions, 3));
 geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+geometry.setAttribute('glow', new THREE.BufferAttribute(glows, 1));
 
 // Custom shader material for soft round particles
 const particleMaterial = new THREE.ShaderMaterial({
@@ -890,7 +893,7 @@ scene.add(particles);
 // ─── Morphing State ─────────────────────────────────────────
 let morphing = false;
 let morphProgress = 0;
-let isSplit = false;
+let sphereCount = 1; // 1, 2, or 4
 
 // Per-particle data
 const midOffsets = new Float32Array(PARTICLE_COUNT * 3);
@@ -925,14 +928,15 @@ function generateTwoSpheres(count) {
   return positions;
 }
 
-function startMorph(newPositions) {
+function startMorph(newPositions, color) {
   startPositions.set(currentPositions);
   targetPositions.set(newPositions);
 
-  // Reset colors to uniform orange
+  // Set target colors
   startColors.set(colors);
+  const c = color || baseOrange;
   for (let i = 0; i < PARTICLE_COUNT; i++) {
-    targetColors[i*3] = baseOrange.r; targetColors[i*3+1] = baseOrange.g; targetColors[i*3+2] = baseOrange.b;
+    targetColors[i*3] = c.r; targetColors[i*3+1] = c.g; targetColors[i*3+2] = c.b;
   }
 
   for (let i = 0; i < PARTICLE_COUNT; i++) {
@@ -961,16 +965,45 @@ function startMorph(newPositions) {
   morphing = true;
 }
 
+const splitBlue = new THREE.Color(0x1a3fff);
+const splitGreen = new THREE.Color(0x00802b);
+
+// Generate four spheres in a 2x2 grid
+function generateFourSpheres(count) {
+  const positions = new Float32Array(count * 3);
+  const r = BASE_SIZE * 0.24;
+  const gap = BASE_SIZE * 0.38;
+  const quarter = Math.floor(count / 4);
+
+  const offsets = [
+    [-gap, gap, 0],
+    [gap, gap, 0],
+    [-gap, -gap, 0],
+    [gap, -gap, 0],
+  ];
+
+  for (let i = 0; i < count; i++) {
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+    const g = Math.min(Math.floor(i / quarter), 3);
+    positions[i * 3]     = r * Math.sin(phi) * Math.cos(theta) + offsets[g][0];
+    positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta) + offsets[g][1];
+    positions[i * 3 + 2] = r * Math.cos(phi) + offsets[g][2];
+  }
+  return positions;
+}
+
 function toggleSplit() {
   if (morphing) return;
-  if (!isSplit) {
-    // Split into two spheres
-    startMorph(generateTwoSpheres(PARTICLE_COUNT));
-    isSplit = true;
+  if (sphereCount === 1) {
+    startMorph(generateTwoSpheres(PARTICLE_COUNT), splitBlue);
+    sphereCount = 2;
+  } else if (sphereCount === 2) {
+    startMorph(generateFourSpheres(PARTICLE_COUNT), splitGreen);
+    sphereCount = 4;
   } else {
-    // Merge back into one sphere
-    startMorph(generateSphere(PARTICLE_COUNT));
-    isSplit = false;
+    startMorph(generateSphere(PARTICLE_COUNT), baseOrange);
+    sphereCount = 1;
   }
 }
 
@@ -1221,9 +1254,9 @@ function animate() {
   rotX += rotVelX;
   rotY += rotVelY;
 
-  // Gentle auto-rotation when not being touched
+  // Gentle auto-rotation when not being touched — doubles when split
   if (!isDragging && Math.abs(rotVelY) < 0.0005) {
-    rotY += 0.002;
+    rotY += sphereCount === 4 ? 0.025 : sphereCount === 2 ? 0.012 : 0.002;
   }
 
   particles.rotation.x = rotX;
