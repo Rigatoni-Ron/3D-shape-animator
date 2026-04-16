@@ -190,12 +190,15 @@ const bgFrag = `
     // Flatten the range — less contrast between zones
     combined = combined * 0.35 + 0.55;
 
-    // Off-white palette — subtle warm/cool shifts
-    vec3 c1 = vec3(0.92, 0.90, 0.88);  // warm grey
-    vec3 c2 = vec3(0.94, 0.92, 0.90);  // soft warm
-    vec3 c3 = vec3(0.96, 0.94, 0.93);  // off-white
-    vec3 c4 = vec3(0.97, 0.96, 0.94);  // light cream
-    vec3 c5 = vec3(0.98, 0.97, 0.96);  // near white
+    // Flat background color #D6D9DD
+    vec3 bgColor = vec3(0.839, 0.851, 0.867);
+
+    // Subtle noise variation for texture
+    vec3 c1 = bgColor - vec3(0.02);
+    vec3 c2 = bgColor;
+    vec3 c3 = bgColor + vec3(0.01);
+    vec3 c4 = bgColor + vec3(0.02);
+    vec3 c5 = bgColor + vec3(0.03);
 
     vec3 col;
     if (combined < 0.3) {
