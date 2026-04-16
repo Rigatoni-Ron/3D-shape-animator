@@ -260,8 +260,7 @@ renderer.domElement.id = 'particleCanvas';
 document.body.appendChild(renderer.domElement);
 
 // ─── Configuration ──────────────────────────────────────────
-const PARTICLE_COUNT = 8000;
-let morphDuration = 2.2; // varies per transition
+const PARTICLE_COUNT = 4000;
 const BASE_SIZE = 2.0;
 
 const colorPalette = [
@@ -290,7 +289,7 @@ function generateCube(count) {
 
 function generateSphere(count) {
   const positions = [];
-  const r = BASE_SIZE * 0.55;
+  const r = BASE_SIZE * 0.45;
   for (let i = 0; i < count; i++) {
     const theta = Math.random() * Math.PI * 2;
     const phi = Math.acos(2 * Math.random() - 1);
@@ -305,8 +304,8 @@ function generateSphere(count) {
 
 function generateTorus(count) {
   const positions = [];
-  const R = BASE_SIZE * 0.4;
-  const r = BASE_SIZE * 0.18;
+  const R = BASE_SIZE * 0.55;
+  const r = BASE_SIZE * 0.2;
   for (let i = 0; i < count; i++) {
     const theta = Math.random() * Math.PI * 2;
     const phi = Math.random() * Math.PI * 2;
@@ -322,7 +321,7 @@ function generateTorus(count) {
 function generatePyramid(count) {
   const positions = [];
   const h = BASE_SIZE * 0.7;
-  const base = BASE_SIZE * 0.6;
+  const base = BASE_SIZE * 0.45;
   for (let i = 0; i < count; i++) {
     const face = Math.floor(Math.random() * 5);
     let x, y, z;
@@ -428,66 +427,187 @@ function generateHeart(count) {
 
 function generateBitcoin(count) {
   const positions = [];
-  const S = BASE_SIZE * 0.5;
-  const thick = 0.04; // thickness of strokes
-  const depth = S * 0.35; // 3D depth
+  const S = BASE_SIZE * 0.45;
+  const extrudeDepth = S * 0.7; // chunky extrusion
+  const strokeW = 0.16; // wide B strokes
 
-  // Helper: add particle on a line with 3D depth
-  function line3D(x1, y1, x2, y2, n) {
-    for (let i = 0; i < n; i++) {
-      const t = Math.random();
-      const z = (Math.random() - 0.5) * depth;
-      positions.push(
-        (x1 + (x2 - x1) * t + (Math.random() - 0.5) * thick) * S,
-        (y1 + (y2 - y1) * t + (Math.random() - 0.5) * thick) * S,
-        z
-      );
-    }
+  // Sample a 2D point on the B outline, returns [x, y]
+  // The B is built from segments: left spine, top/mid/bottom bars, two bumps
+  const segments = [];
+
+  // Left vertical spine
+  for (let i = 0; i < 40; i++) {
+    const t = i / 39;
+    segments.push([-0.35, -0.8 + t * 1.6]);
+  }
+  // Top bar
+  for (let i = 0; i < 15; i++) { const t = i/14; segments.push([-0.35 + t*0.4, 0.8]); }
+  // Middle bar
+  for (let i = 0; i < 15; i++) { const t = i/14; segments.push([-0.35 + t*0.45, 0.0]); }
+  // Bottom bar
+  for (let i = 0; i < 15; i++) { const t = i/14; segments.push([-0.35 + t*0.4, -0.8]); }
+  // Upper bump
+  for (let i = 0; i < 30; i++) {
+    const a = -Math.PI/2 + (i/29) * Math.PI;
+    segments.push([0.05 + 0.38 * Math.cos(a), 0.4 + 0.38 * Math.sin(a)]);
+  }
+  // Lower bump (slightly wider)
+  for (let i = 0; i < 30; i++) {
+    const a = -Math.PI/2 + (i/29) * Math.PI;
+    segments.push([0.1 + 0.42 * Math.cos(a), -0.4 + 0.42 * Math.sin(a)]);
+  }
+  // Strike-through lines
+  for (let i = 0; i < 10; i++) { const t = i/9; segments.push([-0.15, 0.8 + t*0.25]); }
+  for (let i = 0; i < 10; i++) { const t = i/9; segments.push([-0.15, -0.8 - t*0.25]); }
+  for (let i = 0; i < 10; i++) { const t = i/9; segments.push([0.05, 0.8 + t*0.25]); }
+  for (let i = 0; i < 10; i++) { const t = i/9; segments.push([0.05, -0.8 - t*0.25]); }
+
+  const frontBackCount = Math.floor(count * 0.35); // 35% front face
+  const sideCount = count - frontBackCount * 2;      // 30% side walls
+
+  // Front face (z = +depth/2) — filled surface
+  for (let i = 0; i < frontBackCount; i++) {
+    const seg = segments[Math.floor(Math.random() * segments.length)];
+    const nx = (Math.random() - 0.5) * strokeW;
+    const ny = (Math.random() - 0.5) * strokeW;
+    positions.push(
+      (seg[0] + nx) * S,
+      (seg[1] + ny) * S,
+      extrudeDepth / 2
+    );
   }
 
-  // Helper: add particle on an arc with 3D depth
-  function arc3D(cx, cy, r, startAngle, endAngle, n) {
-    for (let i = 0; i < n; i++) {
-      const a = startAngle + Math.random() * (endAngle - startAngle);
-      const z = (Math.random() - 0.5) * depth;
-      positions.push(
-        (cx + r * Math.cos(a) + (Math.random() - 0.5) * thick) * S,
-        (cy + r * Math.sin(a) + (Math.random() - 0.5) * thick) * S,
-        z
-      );
-    }
+  // Back face (z = -depth/2)
+  for (let i = 0; i < frontBackCount; i++) {
+    const seg = segments[Math.floor(Math.random() * segments.length)];
+    const nx = (Math.random() - 0.5) * strokeW;
+    const ny = (Math.random() - 0.5) * strokeW;
+    positions.push(
+      (seg[0] + nx) * S,
+      (seg[1] + ny) * S,
+      -extrudeDepth / 2
+    );
   }
 
-  const perSegment = Math.floor(count / 12);
+  // Side walls — particles along the outline extruded between front and back
+  for (let i = 0; i < sideCount; i++) {
+    const seg = segments[Math.floor(Math.random() * segments.length)];
+    const z = (Math.random() - 0.5) * extrudeDepth;
+    // Place on the edge of the stroke (outer or inner edge)
+    const edgeSide = Math.random() > 0.5 ? 1 : -1;
+    positions.push(
+      (seg[0] + edgeSide * strokeW * 0.4) * S,
+      (seg[1] + edgeSide * strokeW * 0.4) * S,
+      z
+    );
+  }
 
-  // Left vertical stroke of B
-  line3D(-0.35, -0.8, -0.35, 0.8, perSegment);
-
-  // Top horizontal bars
-  line3D(-0.35, 0.8, 0.05, 0.8, perSegment);    // top bar
-  line3D(-0.35, 0.0, 0.1, 0.0, perSegment);      // middle bar
-  line3D(-0.35, -0.8, 0.05, -0.8, perSegment);   // bottom bar
-
-  // Upper bump of B (arc from top to middle)
-  arc3D(0.05, 0.4, 0.4, -Math.PI/2, Math.PI/2, perSegment * 2);
-
-  // Lower bump of B (slightly wider)
-  arc3D(0.1, -0.4, 0.4, -Math.PI/2, Math.PI/2, perSegment * 2);
-
-  // Two vertical strike-through lines extending above and below
-  line3D(-0.15, 0.8, -0.15, 1.0, perSegment);
-  line3D(-0.15, -0.8, -0.15, -1.0, perSegment);
-  line3D(0.05, 0.8, 0.05, 1.0, perSegment);
-  line3D(0.05, -0.8, 0.05, -1.0, perSegment);
-
-  // Fill remaining
   while (positions.length / 3 < count) {
     const idx = Math.floor(Math.random() * positions.length / 3) * 3;
+    positions.push(positions[idx], positions[idx+1], positions[idx+2]);
+  }
+
+  return new Float32Array(positions.slice(0, count * 3));
+}
+
+function generateEthereum(count) {
+  const positions = [];
+  const H = BASE_SIZE * 0.45;
+
+  // ETH diamond: top peak, middle ring, bottom peak
+  // Center vertically: top half is taller than bottom
+  const topY = H * 1.0;
+  const midY = 0;
+  const botY = -H * 0.7;
+  const midW = H * 0.5;
+
+  // 4 middle vertices forming a diamond cross-section
+  const mid = [
+    [ midW, midY,  0    ],  // right
+    [ 0,    midY,  midW ],  // front
+    [-midW, midY,  0    ],  // left
+    [ 0,    midY, -midW ],  // back
+  ];
+  const top = [0, topY, 0];
+  const bot = [0, botY, 0];
+
+  // Helper: random point on a triangle surface
+  function triPoint(a, b, c) {
+    let u = Math.random(), v = Math.random();
+    if (u + v > 1) { u = 1 - u; v = 1 - v; }
+    const w = 1 - u - v;
+    return [
+      a[0]*w + b[0]*u + c[0]*v,
+      a[1]*w + b[1]*u + c[1]*v,
+      a[2]*w + b[2]*u + c[2]*v,
+    ];
+  }
+
+  // 8 triangular faces: 4 upper, 4 lower
+  const upperFaces = [];
+  const lowerFaces = [];
+  for (let i = 0; i < 4; i++) {
+    const j = (i + 1) % 4;
+    upperFaces.push([top, mid[i], mid[j]]);
+    lowerFaces.push([bot, mid[i], mid[j]]);
+  }
+
+  // Upper faces get slightly more particles (taller)
+  const perUpperFace = Math.floor(count * 0.15);
+  const perLowerFace = Math.floor(count * 0.1);
+
+  // Upper faces — surface particles
+  for (const face of upperFaces) {
+    for (let i = 0; i < perUpperFace; i++) {
+      const p = triPoint(face[0], face[1], face[2]);
+      positions.push(p[0], p[1], p[2]);
+    }
+  }
+
+  // Lower faces
+  for (const face of lowerFaces) {
+    for (let i = 0; i < perLowerFace; i++) {
+      const p = triPoint(face[0], face[1], face[2]);
+      positions.push(p[0], p[1], p[2]);
+    }
+  }
+
+  // Middle band gap — a subtle horizontal line of particles at the split
+  const midBandCount = Math.floor(count * 0.08);
+  for (let i = 0; i < midBandCount; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const r = Math.random() * midW;
     positions.push(
-      positions[idx] + (Math.random() - 0.5) * 0.02,
-      positions[idx+1] + (Math.random() - 0.5) * 0.02,
-      positions[idx+2] + (Math.random() - 0.5) * depth * 0.5
+      r * Math.cos(angle),
+      midY + (Math.random() - 0.5) * H * 0.03,
+      r * Math.sin(angle)
     );
+  }
+
+  // Edge lines for definition
+  const edgeCount = count - positions.length / 3;
+  const allEdges = [];
+  for (let i = 0; i < 4; i++) {
+    const j = (i + 1) % 4;
+    allEdges.push([top, mid[i]]);     // top to mid
+    allEdges.push([bot, mid[i]]);     // bot to mid
+    allEdges.push([mid[i], mid[j]]);  // mid ring
+  }
+  const perEdge = Math.floor(edgeCount / allEdges.length);
+  for (const [a, b] of allEdges) {
+    for (let i = 0; i < perEdge; i++) {
+      const t = Math.random();
+      positions.push(
+        a[0] + (b[0]-a[0])*t + (Math.random()-0.5)*0.015,
+        a[1] + (b[1]-a[1])*t + (Math.random()-0.5)*0.015,
+        a[2] + (b[2]-a[2])*t + (Math.random()-0.5)*0.015
+      );
+    }
+  }
+
+  while (positions.length / 3 < count) {
+    const idx = Math.floor(Math.random() * positions.length / 3) * 3;
+    positions.push(positions[idx], positions[idx+1], positions[idx+2]);
   }
 
   return new Float32Array(positions.slice(0, count * 3));
@@ -502,6 +622,7 @@ const shapeGenerators = {
   star: generateStar,
   heart: generateHeart,
   bitcoin: generateBitcoin,
+  ethereum: generateEthereum,
 };
 
 // ─── Particle System ────────────────────────────────────────
@@ -519,7 +640,7 @@ for (let i = 0; i < PARTICLE_COUNT; i++) {
   colors[i * 3] = color.r;
   colors[i * 3 + 1] = color.g;
   colors[i * 3 + 2] = color.b;
-  sizes[i] = 1.5;
+  sizes[i] = 3.0;
   randoms[i] = Math.random();
 }
 
@@ -531,81 +652,33 @@ geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
 const particleMaterial = new THREE.ShaderMaterial({
   uniforms: {
     uPixelRatio: { value: renderer.getPixelRatio() },
-    uTime: { value: 0.0 },
   },
   vertexShader: `
     attribute float size;
     attribute vec3 color;
     varying vec3 vColor;
     varying float vDepth;
-    varying float vGlow;
     uniform float uPixelRatio;
-    uniform float uTime;
-
-    // Simple 3D noise for glow hotspots
-    vec3 mod289(vec3 x) { return x - floor(x / 289.0) * 289.0; }
-    vec4 mod289(vec4 x) { return x - floor(x / 289.0) * 289.0; }
-    vec4 perm(vec4 x) { return mod289(((x * 34.0) + 1.0) * x); }
-
-    float noise3D(vec3 p) {
-      vec3 a = floor(p);
-      vec3 d = p - a;
-      d = d * d * (3.0 - 2.0 * d);
-      vec4 b = a.xxyy + vec4(0.0, 1.0, 0.0, 1.0);
-      vec4 k1 = perm(b.xyxy);
-      vec4 k2 = perm(k1.xyxy + b.zzww);
-      vec4 c = k2 + a.zzzz;
-      vec4 k3 = perm(c);
-      vec4 k4 = perm(c + 1.0);
-      vec4 o1 = fract(k3 * (1.0 / 41.0));
-      vec4 o2 = fract(k4 * (1.0 / 41.0));
-      vec4 o3 = o2 * d.z + o1 * (1.0 - d.z);
-      vec2 o4 = o3.yw * d.x + o3.xz * (1.0 - d.x);
-      return o4.y * d.y + o4.x * (1.0 - d.y);
-    }
 
     void main() {
       vColor = color;
       vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
       vDepth = -mvPosition.z;
-
-      // Glow hotspots: noise sampled at world position, drifting over time
-      float n1 = noise3D(position * 1.8 + vec3(uTime * 0.3, uTime * 0.2, uTime * -0.15));
-      float n2 = noise3D(position * 3.5 + vec3(-uTime * 0.2, uTime * 0.4, uTime * 0.25));
-      float glow = smoothstep(0.45, 0.75, n1) * 0.7 + smoothstep(0.5, 0.8, n2) * 0.3;
-
-      vGlow = glow;
-
-      // Glow particles get bigger
-      float glowSize = size + glow * 4.0;
-      gl_PointSize = glowSize * uPixelRatio;
+      gl_PointSize = size * uPixelRatio;
       gl_Position = projectionMatrix * mvPosition;
     }
   `,
   fragmentShader: `
     varying vec3 vColor;
     varying float vDepth;
-    varying float vGlow;
 
     void main() {
       vec2 center = gl_PointCoord - vec2(0.5);
       float dist = length(center);
       if (dist > 0.5) discard;
-
-      // Glowing particles get a soft falloff, normal ones stay crisp
-      float softness = mix(0.4, 0.1, vGlow);
-      float alpha = smoothstep(0.5, softness, dist);
-
-      // Depth fade
+      float alpha = smoothstep(0.5, 0.4, dist);
       float depthFade = smoothstep(6.0, 2.0, vDepth) * 0.4 + 0.6;
-
-      // Boost brightness in glow zones — hotter orange
-      vec3 col = mix(vColor, vec3(1.0, 0.4, 0.0), vGlow * 0.4);
-
-      // Glow particles are more opaque at edges for bloom feel
-      float glowAlpha = mix(alpha, alpha * 0.6 + 0.4, vGlow);
-
-      gl_FragColor = vec4(col, glowAlpha * depthFade);
+      gl_FragColor = vec4(vColor, alpha * depthFade);
     }
   `,
   transparent: true,
@@ -620,33 +693,19 @@ scene.add(particles);
 let morphing = false;
 let morphProgress = 0;
 let currentShape = 'sphere';
-const shapeOrder = ['sphere', 'torus', 'pyramid', 'bitcoin'];
+const shapeOrder = ['sphere', 'pyramid', 'bitcoin', 'ethereum'];
 let shapeIndex = 0;
 
 // Per-particle data
 const midOffsets = new Float32Array(PARTICLE_COUNT * 3);
 const delays = new Float32Array(PARTICLE_COUNT);
-const swirlData = new Float32Array(PARTICLE_COUNT);
-let morphStyle = 0;
 
-// Profiles: faster, punchier, less stagger so everything reacts immediately
-const profiles = {
-  toTorus:   { duration: 1.4, expand: [0.4, 0.9], scatter: 0.5, swirl: [0.5, 2.0], stagger: 'radial',  staggerAmt: 0.12 },
-  toPyramid: { duration: 1.1, expand: [0.2, 0.6], scatter: 0.7, swirl: [1.5, 4.0], stagger: 'vertical', staggerAmt: 0.15 },
-  toBitcoin: { duration: 1.2, expand: [0.3, 0.5], scatter: 0.3, swirl: [0.3, 1.5], stagger: 'vertical', staggerAmt: 0.10 },
-  toSphere:  { duration: 1.3, expand: [0.6, 1.4], scatter: 0.6, swirl: [1.0, 3.0], stagger: 'angular',  staggerAmt: 0.12 },
-};
-
-function getProfile(name) {
-  return profiles['to' + name.charAt(0).toUpperCase() + name.slice(1)] || profiles.toSphere;
-}
+const MORPH_DURATION = 1.0;
 
 function cycleShape() {
   if (morphing) return;
   shapeIndex = (shapeIndex + 1) % shapeOrder.length;
   const shapeName = shapeOrder[shapeIndex];
-  const p = getProfile(shapeName);
-  morphDuration = p.duration;
 
   const newPositions = shapeGenerators[shapeName](PARTICLE_COUNT);
   startPositions.set(currentPositions);
@@ -657,51 +716,33 @@ function cycleShape() {
     const sx = startPositions[i3], sy = startPositions[i3+1], sz = startPositions[i3+2];
     const tx = targetPositions[i3], ty = targetPositions[i3+1], tz = targetPositions[i3+2];
 
-    // Direction from start to target — push the arc perpendicular to travel
     const dx = tx - sx, dy = ty - sy, dz = tz - sz;
     const travelDist = Math.sqrt(dx*dx + dy*dy + dz*dz) + 0.001;
 
-    // Cross product with a varying axis for perpendicular push
+    // Compute a perpendicular offset for a subtle arc
     const seed = randoms[i];
     const ax = Math.sin(seed * 50), ay = Math.cos(seed * 30), az = Math.sin(seed * 70);
     let px = dy*az - dz*ay, py = dz*ax - dx*az, pz = dx*ay - dy*ax;
     const pLen = Math.sqrt(px*px + py*py + pz*pz) + 0.001;
     px /= pLen; py /= pLen; pz /= pLen;
 
-    const expand = p.expand[0] + seed * (p.expand[1] - p.expand[0]);
-    const scatterVal = (randoms[(i*7)%PARTICLE_COUNT] - 0.5) * p.scatter;
+    // Small arc — just enough to give the path a gentle curve, not a wild detour
+    const arcStrength = 0.08 + seed * 0.12;
+    midOffsets[i3]     = px * arcStrength * travelDist;
+    midOffsets[i3 + 1] = py * arcStrength * travelDist;
+    midOffsets[i3 + 2] = pz * arcStrength * travelDist;
 
-    midOffsets[i3]     = px * expand * travelDist + scatterVal;
-    midOffsets[i3 + 1] = py * expand * travelDist + scatterVal;
-    midOffsets[i3 + 2] = pz * expand * travelDist + scatterVal;
-
-    // Minimal stagger — most particles start almost immediately
-    let bias;
-    if (p.stagger === 'radial') {
-      bias = Math.sqrt(sx*sx + sy*sy + sz*sz) / 2.0;
-    } else if (p.stagger === 'vertical') {
-      bias = 1.0 - (sy + 1.5) / 3.0;
-    } else {
-      bias = (Math.atan2(sz, sx) + Math.PI) / (Math.PI * 2);
-    }
-    delays[i] = bias * p.staggerAmt + seed * 0.05;
-
-    swirlData[i] = (seed > 0.5 ? 1 : -1) * (p.swirl[0] + seed * (p.swirl[1] - p.swirl[0]));
+    // Tiny stagger so particles don't all move in lockstep
+    delays[i] = seed * 0.08;
   }
 
-  morphStyle = shapeIndex;
   morphProgress = 0;
   morphing = true;
   currentShape = shapeName;
 }
 
-// Easing — all fast-start curves, no slow wind-up
-function easeOutQuart(t) { return 1 - Math.pow(1 - t, 4); }
-function easeOutExpo(t) { return t === 1 ? 1 : 1 - Math.pow(2, -12 * t); }
-function easeOutBack(t, c) { c = c || 1.7; return 1 + c * Math.pow(t-1, 3) + (c-1) * Math.pow(t-1, 2); }
-function easeOutElastic(t) {
-  if (t === 0 || t === 1) return t;
-  return Math.pow(2, -10 * t) * Math.sin((t - 0.05) * (2 * Math.PI) / 0.25) + 1;
+function easeInOutCubic(t) {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 }
 
 // ─── Drag-to-Spin Interaction ───────────────────────────────
@@ -779,7 +820,7 @@ function animate() {
 
   // Morph animation
   if (morphing) {
-    morphProgress += dt / morphDuration;
+    morphProgress += dt / MORPH_DURATION;
     if (morphProgress >= 1) {
       morphProgress = 1;
       morphing = false;
@@ -790,39 +831,21 @@ function animate() {
     for (let i = 0; i < PARTICLE_COUNT; i++) {
       const i3 = i * 3;
 
-      // Minimal delay — everything kicks off fast
+      // Small stagger so particles don't all start at once
       const raw = Math.min(Math.max((morphProgress - delays[i]) / (1.0 - delays[i]), 0), 1);
 
-      // Fast-out easing varies per shape for character
-      let t;
-      if (morphStyle === 1) {
-        t = easeOutExpo(raw);         // torus: explosive start, smooth glide
-      } else if (morphStyle === 2) {
-        t = easeOutElastic(raw);      // pyramid: punchy with bounce
-      } else if (morphStyle === 3) {
-        t = easeOutBack(raw, 2.0);    // bitcoin: overshoot snap
-      } else {
-        t = easeOutQuart(raw);        // sphere: powerful but clean
-      }
+      const t = easeInOutCubic(raw);
 
       const sx = startPositions[i3], sy = startPositions[i3+1], sz = startPositions[i3+2];
       const tx = targetPositions[i3], ty = targetPositions[i3+1], tz = targetPositions[i3+2];
 
-      // Arc intensity peaks at midpoint of flight
+      // Subtle arc — peaks at midpoint of flight
       const arc = Math.sin(raw * Math.PI);
 
-      // Simple lerp + perpendicular arc push
-      const lx = sx + (tx - sx) * t + midOffsets[i3] * arc;
-      const ly = sy + (ty - sy) * t + midOffsets[i3+1] * arc;
-      const lz = sz + (tz - sz) * t + midOffsets[i3+2] * arc;
-
-      // Swirl rotation — strongest at midpoint
-      const swirlAngle = arc * swirlData[i];
-      const cosS = Math.cos(swirlAngle), sinS = Math.sin(swirlAngle);
-
-      pos[i3]     = lx * cosS + lz * sinS;
-      pos[i3 + 1] = ly;
-      pos[i3 + 2] = -lx * sinS + lz * cosS;
+      // Direct lerp with gentle perpendicular curve
+      pos[i3]     = sx + (tx - sx) * t + midOffsets[i3] * arc;
+      pos[i3 + 1] = sy + (ty - sy) * t + midOffsets[i3+1] * arc;
+      pos[i3 + 2] = sz + (tz - sz) * t + midOffsets[i3+2] * arc;
     }
     geometry.attributes.position.needsUpdate = true;
   }
@@ -859,8 +882,6 @@ function animate() {
   particles.rotation.x = rotX;
   particles.rotation.y = rotY;
 
-  // Update particle glow time
-  particleMaterial.uniforms.uTime.value = time;
 
   // Render background shader then particles
   renderBg(time);
