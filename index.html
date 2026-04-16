@@ -1253,7 +1253,7 @@ let cursorVisible = false;
 
 // Raycaster for hover detection
 const raycaster = new THREE.Raycaster();
-raycaster.params.Points.threshold = 0.15;
+raycaster.params.Points.threshold = 0.3;
 const mouse2D = new THREE.Vector2(-999, -999);
 
 window.addEventListener('mousemove', (e) => {
