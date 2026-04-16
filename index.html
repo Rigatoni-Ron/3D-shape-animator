@@ -8,7 +8,7 @@
   * { margin: 0; padding: 0; box-sizing: border-box; cursor: none; }
 
   body {
-    background: #ff8c42;
+    background: #f5f3f1;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
     overflow: hidden;
     height: 100vh;
@@ -190,12 +190,12 @@ const bgFrag = `
     // Flatten the range — less contrast between zones
     combined = combined * 0.35 + 0.55;
 
-    // 5 saturated orange hues — rich and punchy
-    vec3 c1 = vec3(0.80, 0.28, 0.04);  // deep saturated
-    vec3 c2 = vec3(0.92, 0.38, 0.06);  // rich orange
-    vec3 c3 = vec3(1.00, 0.46, 0.10);  // vivid orange
-    vec3 c4 = vec3(1.00, 0.54, 0.16);  // warm punch
-    vec3 c5 = vec3(1.00, 0.64, 0.26);  // bright accent
+    // Off-white palette — subtle warm/cool shifts
+    vec3 c1 = vec3(0.92, 0.90, 0.88);  // warm grey
+    vec3 c2 = vec3(0.94, 0.92, 0.90);  // soft warm
+    vec3 c3 = vec3(0.96, 0.94, 0.93);  // off-white
+    vec3 c4 = vec3(0.97, 0.96, 0.94);  // light cream
+    vec3 c5 = vec3(0.98, 0.97, 0.96);  // near white
 
     vec3 col;
     if (combined < 0.3) {
@@ -265,7 +265,7 @@ let morphDuration = 2.2; // varies per transition
 const BASE_SIZE = 2.0;
 
 const colorPalette = [
-  new THREE.Color(0xf0ece8), // warm off-white
+  new THREE.Color(0xff5500), // vibrant orange
 ];
 
 // ─── Shape Generators ───────────────────────────────────────
@@ -599,8 +599,8 @@ const particleMaterial = new THREE.ShaderMaterial({
       // Depth fade
       float depthFade = smoothstep(6.0, 2.0, vDepth) * 0.4 + 0.6;
 
-      // Boost brightness in glow zones
-      vec3 col = mix(vColor, vec3(1.0), vGlow * 0.5);
+      // Boost brightness in glow zones — hotter orange
+      vec3 col = mix(vColor, vec3(1.0, 0.4, 0.0), vGlow * 0.4);
 
       // Glow particles are more opaque at edges for bloom feel
       float glowAlpha = mix(alpha, alpha * 0.6 + 0.4, vGlow);
