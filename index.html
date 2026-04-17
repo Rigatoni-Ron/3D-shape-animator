@@ -35,12 +35,18 @@
     z-index: 1;
   }
 
-  .control-panel {
+  .sidebar {
     position: fixed;
     left: 24px;
     top: 50%;
     transform: translateY(-50%);
     z-index: 10;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .control-panel {
     border-radius: 22px;
     background: linear-gradient(
       180deg,
@@ -144,6 +150,107 @@
     color: rgba(12, 15, 20, 0.9);
   }
 
+  .color-section {
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .color-section-label {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: rgba(12, 15, 20, 0.4);
+    padding: 0 4px;
+  }
+
+  .color-picker-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 4px;
+  }
+
+  .color-swatch-wrapper {
+    position: relative;
+    width: 32px;
+    height: 32px;
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1.5px solid rgba(255, 255, 255, 0.7);
+    box-shadow: 0 1px 3px rgba(20, 24, 32, 0.12), 0 0 0 0.5px rgba(20, 24, 32, 0.06);
+    flex-shrink: 0;
+  }
+
+  .color-swatch-wrapper input[type="color"] {
+    position: absolute;
+    top: -4px;
+    left: -4px;
+    width: calc(100% + 8px);
+    height: calc(100% + 8px);
+    border: none;
+    padding: 0;
+    cursor: none;
+    background: none;
+  }
+
+  .color-swatch-wrapper input[type="color"]::-webkit-color-swatch-wrapper {
+    padding: 0;
+  }
+
+  .color-swatch-wrapper input[type="color"]::-webkit-color-swatch {
+    border: none;
+    border-radius: 0;
+  }
+
+  .color-hex {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 12px;
+    font-weight: 500;
+    color: rgba(12, 15, 20, 0.6);
+    flex: 1;
+  }
+
+  .randomize-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
+    padding: 8px 0;
+    border: none;
+    border-radius: 10px;
+    background: rgba(12, 15, 20, 0.04);
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    color: rgba(12, 15, 20, 0.55);
+    cursor: none;
+    transition: background 0.2s ease, color 0.2s ease;
+  }
+
+  .randomize-btn:hover {
+    background: rgba(12, 15, 20, 0.07);
+    color: rgba(12, 15, 20, 0.75);
+  }
+
+  .randomize-btn:active {
+    background: rgba(12, 15, 20, 0.1);
+  }
+
+  .randomize-icon {
+    width: 14px;
+    height: 14px;
+    transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .randomize-btn:active .randomize-icon {
+    transform: rotate(180deg);
+  }
+
   .cursor {
     position: fixed;
     top: 0;
@@ -205,12 +312,33 @@
 
 <canvas id="bgCanvas"></canvas>
 
-<div class="control-panel" id="controlPanel">
-  <div class="cell-track">
-    <div class="cell-pill" id="cellPill"></div>
-    <button class="cell-btn active" data-count="1" data-index="0">Base cell</button>
-    <button class="cell-btn" data-count="2" data-index="1">Duo cell</button>
-    <button class="cell-btn" data-count="4" data-index="2">Quad cell</button>
+<div class="sidebar">
+  <div class="control-panel" id="controlPanel">
+    <div class="cell-track">
+      <div class="cell-pill" id="cellPill"></div>
+      <button class="cell-btn active" data-count="1" data-index="0">Base cell</button>
+      <button class="cell-btn" data-count="2" data-index="1">Duo cell</button>
+      <button class="cell-btn" data-count="4" data-index="2">Quad cell</button>
+    </div>
+  </div>
+
+  <div class="control-panel" id="colorPanel">
+    <div class="color-section">
+      <div class="color-section-label">Colour</div>
+      <div class="color-picker-row">
+        <div class="color-swatch-wrapper">
+          <input type="color" id="colorPicker" value="#ff5500">
+        </div>
+        <span class="color-hex" id="colorHex">#ff5500</span>
+      </div>
+      <button class="randomize-btn" id="randomizeBtn">
+        <svg class="randomize-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M1 3h3.5l2 4.5L8.5 5l2 5.5L13 3h2"/>
+          <path d="M1 13h3.5l2-4.5L8.5 11l2-5.5L13 13h2"/>
+        </svg>
+        Randomize
+      </button>
+    </div>
   </div>
 </div>
 
@@ -1085,6 +1213,13 @@ function startMorph(newPositions, color) {
 
 const splitBlue = new THREE.Color(0x1a3fff);
 const splitGreen = new THREE.Color(0x00802b);
+
+// Per-state colors (mutable via color picker)
+const stateColors = {
+  1: baseOrange.clone(),
+  2: splitBlue.clone(),
+  4: splitGreen.clone()
+};
 // Generate four spheres in a 2x2 grid
 function generateFourSpheres(count) {
   const positions = new Float32Array(count * 3);
@@ -1112,12 +1247,13 @@ function generateFourSpheres(count) {
 
 function setCell(target) {
   if (morphing || target === sphereCount) return;
+  const color = stateColors[target];
   if (target === 1) {
-    startMorph(generateSphere(PARTICLE_COUNT), baseOrange);
+    startMorph(generateSphere(PARTICLE_COUNT), color);
   } else if (target === 2) {
-    startMorph(generateTwoSpheres(PARTICLE_COUNT), splitBlue);
+    startMorph(generateTwoSpheres(PARTICLE_COUNT), color);
   } else if (target === 4) {
-    startMorph(generateFourSpheres(PARTICLE_COUNT), splitGreen);
+    startMorph(generateFourSpheres(PARTICLE_COUNT), color);
   }
   sphereCount = target;
   updatePanel();
@@ -1153,6 +1289,66 @@ document.querySelectorAll('.cell-btn').forEach(btn => {
 
 // Initialize pill position on load
 updatePanel();
+
+// ─── Color Picker ──────────────────────────────────────────
+const colorPicker = document.getElementById('colorPicker');
+const colorHex = document.getElementById('colorHex');
+const randomizeBtn = document.getElementById('randomizeBtn');
+
+function colorToHex(c) {
+  return '#' + c.getHexString();
+}
+
+function applyColor(hexStr) {
+  const c = new THREE.Color(hexStr);
+  stateColors[sphereCount].copy(c);
+  // Update current particles immediately
+  for (let i = 0; i < PARTICLE_COUNT; i++) {
+    targetColors[i * 3] = c.r;
+    targetColors[i * 3 + 1] = c.g;
+    targetColors[i * 3 + 2] = c.b;
+  }
+  if (!morphing) {
+    const col = particles.geometry.attributes.color.array;
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      col[i * 3] = c.r;
+      col[i * 3 + 1] = c.g;
+      col[i * 3 + 2] = c.b;
+    }
+    particles.geometry.attributes.color.needsUpdate = true;
+  }
+  colorPicker.value = hexStr;
+  colorHex.textContent = hexStr;
+}
+
+function syncPickerToState() {
+  const hex = colorToHex(stateColors[sphereCount]);
+  colorPicker.value = hex;
+  colorHex.textContent = hex;
+}
+
+// Update picker when switching states
+const origUpdatePanel = updatePanel;
+updatePanel = function() {
+  origUpdatePanel();
+  syncPickerToState();
+};
+
+colorPicker.addEventListener('input', (e) => {
+  applyColor(e.target.value);
+});
+
+randomizeBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  const hue = Math.random();
+  const sat = 0.6 + Math.random() * 0.4;
+  const light = 0.35 + Math.random() * 0.3;
+  const c = new THREE.Color().setHSL(hue, sat, light);
+  applyColor(colorToHex(c));
+});
+
+// Init picker to current state
+syncPickerToState();
 
 function easeInOutCubic(t) {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
@@ -1452,7 +1648,7 @@ window.addEventListener('mousemove', (e) => {
   mouse2D.x = (e.clientX / window.innerWidth) * 2 - 1;
   mouse2D.y = -(e.clientY / window.innerHeight) * 2 + 1;
 
-  const overBtn = e.target.closest('.cell-btn');
+  const overBtn = e.target.closest('.cell-btn') || e.target.closest('.randomize-btn') || e.target.closest('.color-swatch-wrapper');
   if (overBtn) {
     cursorEl.classList.add('hovering');
   } else {
